@@ -35,30 +35,30 @@ The result: **Wildlife biologists and conservation teams can now deploy high-per
 ### Data Flow & Processing Pipeline
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                       AnimalDetectionApp (PyQt5)                    │
-│         Main Thread: UI Rendering, User Interaction                │
+┌───────────────────────────────────────────────────────────────────┐
+│                       AnimalDetectionApp (PyQt5)                  │
+│         Main Thread: UI Rendering, User Interaction               │
 └────────────────────────────┬──────────────────────────────────────┘
                              │
                    pyqtSignal │ frame_processed
                              │
             ┌────────────────▼──────────────────┐
-            │    VideoProcessor (QObject)        │
-            │     Dedicated QThread Worker       │
-            │                                    │
+            │    VideoProcessor (QObject)       │
+            │     Dedicated QThread Worker      │
+            │                                   │
             │  ┌──────────────────────────────┐ │
             │  │  OpenCV Frame Read           │ │
             │  │  (cv2.VideoCapture)          │ │
             │  └───────────────┬──────────────┘ │
             │                  │                │
             │  ┌───────────────▼──────────────┐ │
-            │  │  PyTorch Tensor Conversion  │ │
-            │  │  (Normalize & NCHW permute) │ │
+            │  │  PyTorch Tensor Conversion   │ │
+            │  │  (Normalize & NCHW permute)  │ │
             │  └───────────────┬──────────────┘ │
             │                  │                │
             │  ┌───────────────▼──────────────┐ │
-            │  │  Faster R-CNN Inference     │ │
-            │  │  (Forward pass, no_grad)    │ │
+            │  │  Faster R-CNN Inference      │ │
+            │  │  (Forward pass, no_grad)     │ │
             │  └───────────────┬──────────────┘ │
             │                  │                │
             │  ┌───────────────▼──────────────┐ │
@@ -69,17 +69,17 @@ The result: **Wildlife biologists and conservation teams can now deploy high-per
             │  └───────────────┬──────────────┘ │
             │                  │                │
             │  ┌───────────────▼──────────────┐ │
-            │  │  Visualization Rendering    │ │
-            │  │  (Bounding boxes + labels)  │ │
+            │  │  Visualization Rendering     │ │
+            │  │  (Bounding boxes + labels)   │ │
             │  └──────────────────────────────┘ │
             └────────────────┬──────────────────┘
                              │
               pyqtSignal emit │ (QImage, count)
                              │
             ┌────────────────▼──────────────────┐
-            │   Main Thread: Update Display    │
-            │   (Non-blocking, ~25ms latency) │
-            └────────────────────────────────────┘
+            │   Main Thread: Update Display     │
+            │   (Non-blocking, ~25ms latency)   │
+            └───────────────────────────────────┘
 ```
 
 ### Directory Topology
