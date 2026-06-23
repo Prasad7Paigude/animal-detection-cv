@@ -11,7 +11,7 @@
 
 ---
 
-## 🌍 Core Mission & The Genesis
+## Core Mission
 
 **The Problem:** Modern wildlife detection systems suffer from a critical trio of limitations:
 
@@ -30,7 +30,7 @@ The result: **Wildlife biologists and conservation teams can now deploy high-per
 
 ---
 
-## ⚙️ System Pipeline & Architecture
+## Architecture & Data Flow
 
 ### Data Flow & Processing Pipeline
 
@@ -40,7 +40,7 @@ The result: **Wildlife biologists and conservation teams can now deploy high-per
 │         Main Thread: UI Rendering, User Interaction               │
 └────────────────────────────┬──────────────────────────────────────┘
                              │
-                   pyqtSignal │ frame_processed
+                  pyqtSignal │ frame_processed
                              │
             ┌────────────────▼──────────────────┐
             │    VideoProcessor (QObject)       │
@@ -74,7 +74,7 @@ The result: **Wildlife biologists and conservation teams can now deploy high-per
             │  └──────────────────────────────┘ │
             └────────────────┬──────────────────┘
                              │
-              pyqtSignal emit │ (QImage, count)
+             pyqtSignal emit │ (QImage, count)
                              │
             ┌────────────────▼──────────────────┐
             │   Main Thread: Update Display     │
@@ -117,117 +117,28 @@ animal-detection-cv/
 
 ---
 
-## 📈 Performance Metrics & Engineering Triumphs
+## Engineering Triumphs
 
-### 1️⃣ Thread-Safe PyQt5 Video Processing
+### 1. Thread-Safe PyQt5 Video Processing
+- **Problem:** Naive synchronous video processing locks the entire UI for 25-40ms per frame, making the application unresponsive.
+- **Solution:** Implemented a QObject-based worker thread architecture with `pyqtSignal` emission, offloading OpenCV frame reads and PyTorch tensor computations to a dedicated background thread.
+- **Result:** UI remains 100% responsive during inference, maintaining ~40 FPS sustained throughput with zero deadlocks.
 
-**Challenge:** Naive synchronous video processing locks the entire UI for 25-40ms per frame, making the application unresponsive to user actions (button clicks, window resizing).
+### 2. Zero-Crash MLOps Architecture
+- **Problem:** Production systems fail when users lack 158MB model weights, resulting in fatal terminal stack traces that destroy user confidence.
+- **Solution:** Engineered a graceful degradation pipeline using `torch.hub` that automatically fetches and caches model weights on the first run, wrapped in comprehensive GUI-based error handling.
+- **Result:** Zero manual downloads required by the end-user. Network or file errors surface as polished PyQt5 dialogs instead of application crashes.
 
-**Solution:** We implemented a **QObject-based worker thread architecture** with `pyqtSignal` emission:
-
-```python
-class VideoProcessor(qtc.QObject):
-    frame_processed = qtc.pyqtSignal(object, int)  # (QImage, carnivore_count)
-    finished = qtc.pyqtSignal()
-    
-    @qtc.pyqtSlot()
-    def process(self) -> None:
-        """Runs on dedicated QThread, never blocks UI"""
-        while self._is_running and cap.isOpened():
-            ret, frame = cap.read()
-            processed_frame, count = process_frame(frame, self.model)  # ~40ms
-            img_qt = pil_to_qt(img_pil)
-            self.frame_processed.emit(img_qt, count)  # Thread-safe signal emission
-            qtc.QThread.msleep(25)  # Graceful frame timing
-```
-
-**Results:**
-- ✅ **UI remains responsive** during inference (button clicks, file dialogs, window events processed immediately)
-- ✅ **~40 FPS sustained throughput** on modern hardware (GPU-accelerated inference)
-- ✅ **Zero deadlocks** thanks to Qt's event-driven architecture and signal/slot decoupling
-- ✅ **Graceful shutdown**: `stop()` method enables clean thread termination without resource leaks
+### 3. Monolithic-to-Modular Decomposition
+- **Problem:** Initial prototype blended model math with UI logic in 190+ lines of spaghetti code, making refactoring impossible without mathematical regression.
+- **Solution:** Decomposed the application into 8 independent modules, strictly isolating pure ML mathematics (NMS, thresholding) from the UI rendering layer.
+- **Result:** Testable inference engine decoupled from the UI. Engineers can modify the PyQt5 interface without touching the PyTorch logic, and vice versa.
 
 ---
 
-### 2️⃣ Zero-Crash MLOps Architecture
-
-**Challenge:** Production systems fail when users lack model weights. Terminal stack traces destroy user confidence. Manual weight management is error-prone and doesn't scale.
-
-**Solution:** We engineered a **graceful degradation pipeline** with automatic model provenance:
-
-```python
-def download_model_if_missing() -> None:
-    """Auto-fetch 158MB model from GitHub Releases on first run"""
-    if MODEL_PATH.exists():
-        return
-    
-    os.makedirs(MODEL_PATH.parent, exist_ok=True)
-    torch.hub.download_url_to_file(MODEL_URL, str(MODEL_PATH))
-    # MODEL_URL = "https://github.com/Prasad7Paigude/.../releases/download/v1.0.0/..."
-
-def load_model() -> torch.nn.Module:
-    """Wrapped with comprehensive error handling"""
-    try:
-        download_model_if_missing()
-        # ... FastRCNNPredictor setup
-        state_dict = torch.load(MODEL_PATH, map_location=DEVICE)
-    except (FileNotFoundError, RuntimeError, OSError, urllib.error.URLError) as e:
-        raise ModelLoadError(f"Failed to load model: {e}")
-```
-
-**Results:**
-- ✅ **No manual downloads required**: Model fetched securely on first execution
-- ✅ **User-friendly error dialogs**: Polished `QMessageBox.critical()` instead of Python tracebacks
-- ✅ **Network resilience**: Built-in retry logic via `torch.hub` mechanisms
-- ✅ **Graceful exit**: Application closes cleanly with diagnostic message if model unavailable
-
----
-
-### 3️⃣ Monolithic-to-Modular Decomposition
-
-**Challenge:** Hackathon code blended model math with UI logic in 190+ lines of spaghetti. Refactoring was impossible without regression.
-
-**Solution:** We decomposed into **8 independent modules**, each with a singular responsibility:
-
-| Module | LOC | Responsibility | Testability |
-|--------|-----|-----------------|-------------|
-| `inference.py` | ~130 | Faster R-CNN forward pass, NMS, thresholding | ✅ Pure functions |
-| `app_gui.py` | ~185 | PyQt5 UI, thread orchestration | ✅ Mockable model |
-| `train.py` | ~168 | Training loop, metrics (accuracy, precision, recall) | ✅ Deterministic |
-| `dataset.py` | ~90 | COCO annotation parsing, transforms | ✅ Standalone |
-| `config/settings.py` | ~30 | Hyperparameters, device selection | ✅ No I/O |
-| `utils/visualization.py` | ~30 | PIL ↔ Qt conversions | ✅ No ML logic |
-
-**Key Achievements:**
-- ✅ **Zero mathematical regression**: Model accuracy, NMS behavior, thresholding identical to monolith
-- ✅ **Testable inference**: `process_frame()` is a pure function—input image + model → output + count
-- ✅ **Pluggable UI**: Inference engine works with CLI, batch processing, or future web frontend
-- ✅ **Maintainability**: Engineers can modify UI without touching ML code and vice versa
-
-**Sample Pure Function (ML/UI Boundary):**
-```python
-def process_frame(image: np.ndarray, model: torch.nn.Module) -> tuple[np.ndarray, int]:
-    """Inference pipeline—completely decoupled from UI"""
-    image_tensor = torch.tensor(image_rgb / 255.0).permute(2, 0, 1).unsqueeze(0).to(DEVICE)
-    
-    with torch.no_grad():
-        output = model(image_tensor)[0]
-    
-    # Post-processing: threshold, NMS, classification
-    keep = scores > SCORE_THRESHOLD  # 0.5
-    keep_indices = ops.nms(torch.tensor(boxes), torch.tensor(scores), IOU_THRESHOLD)  # 0.4
-    carnivore_count = int(sum(1 for label in labels if label == 1))
-    
-    # Visualization (rendering-agnostic)
-    for x1, y1, x2, y2 in boxes:
-        cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
-    
-    return image, carnivore_count  # Returns numpy array + count—can be consumed by any UI
-```
-
----
-
-## 🚀 Enterprise Quick Start (Zero-Friction Setup)
+## Enterprise Quick Start
+<details>
+<summary><b>View Installation & Execution Commands</b></summary>
 
 ### Prerequisites
 
@@ -291,9 +202,11 @@ python -m src.app_gui
    - Console outputs structured logging (INFO, ERROR)
    - UI displays polished error dialogs (not stack traces)
 
+</details>
+
 ---
 
-## 🛠️ Comprehensive Tech Stack
+## Tech Stack
 
 ### Core ML & Inference
 
@@ -330,33 +243,9 @@ python -m src.app_gui
 
 ---
 
-## 🔬 Model Architecture & Inference Details
-
-### Faster R-CNN ResNet50 FPN
-
-**Architecture:**
-- **Backbone:** ResNet50 + Feature Pyramid Network (FPN)
-- **Anchor Generation:** Multi-scale anchors (8×, 16×, 32× stride)
-- **RPN:** Region Proposal Network for candidate bounding boxes
-- **ROI Head:** Classification + Bounding Box Regression
-
-**Inference Pipeline (config/settings.py):**
-```python
-NUM_CLASSES = 3                    # Background (0), Carnivorous (1), Herbivorous (2)
-SCORE_THRESHOLD = 0.5              # Confidence threshold
-IOU_THRESHOLD = 0.4                # Non-Maximum Suppression (NMS) threshold
-DEVICE = torch.cuda or torch.cpu  # Auto-detect GPU availability
-```
-
-**Post-Processing (src/inference.py):**
-1. Score-based filtering: Keep predictions with confidence > 0.5
-2. Non-Maximum Suppression: Remove overlapping detections (IoU > 0.4)
-3. Label-based counting: Isolate carnivorous detections (label == 1)
-4. Visualization: Render bounding boxes with class labels
-
----
-
-## 📚 Development & Training
+## Development & Training
+<details>
+<summary><b>View Model Training & Evaluation Setup</b></summary>
 
 ### Training from Scratch
 
@@ -397,9 +286,11 @@ DATASET_PATHS = {
 
 Configure in `config/settings.py` before training.
 
+</details>
+
 ---
 
-## 🔐 Security & Reliability
+## Security & Reliability
 
 ### Model Provenance
 
@@ -421,19 +312,6 @@ Configure in `config/settings.py` before training.
 
 ---
 
-## 📝 License
+## License
 
-This project is licensed under the **MIT License**. See [LICENSE](LICENSE) for details.
-
----
-
-## 📧 Questions & Support
-
-For technical inquiries, algorithm questions, or deployment challenges:
-
-- **GitHub Issues:** [Open an issue](https://github.com/Prasad7Paigude/animal-detection-cv/issues)
-- **Discussions:** Architectural questions welcome in [GitHub Discussions](https://github.com/Prasad7Paigude/animal-detection-cv/discussions)
-
----
-
-**Built with precision engineering and rigorous attention to production systems design.**
+MIT — see [LICENSE](LICENSE).
